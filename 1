@@ -1,0 +1,182 @@
+// Skeleton code for B657 A4 Part 2.
+// D. Crandall
+//
+//
+#include <vector>
+#include <iostream>
+#include <fstream>
+#include <map>
+#include <math.h>
+#include <CImg.h>
+#include <assert.h>
+#include <string>
+#include <algorithm>
+
+#define beta 0.3
+
+using namespace cimg_library;
+using namespace std;
+
+class Point
+{
+public:
+  Point() {}
+  Point(int _col, int _row) : row(_row), col(_col) {}
+  int row, col;
+  bool operator== ( const Point &p) { return (p.row == row && p.col == col); }
+};
+
+CImg<double> naive_segment(const CImg<double> &img, const vector<Point> &fg, const vector<Point> &bg)
+{
+  // implement this in step 2...
+  //  this placeholder just returns a random disparity map
+  
+  CImg<double> fg_temp_mean(3,1);
+  for(int i=0; i<fg.size(); i++)
+    for(int j=0; j<3; j++)
+      fg_temp_mean(j,0,0,0)+=img( fg[i].col, fg[i].row, 0, j);
+  for(int j=0; j<3; j++)
+      fg_temp_mean(j,0,0,0)/=fg.size();
+  CImg<double> fg_mean=fg_temp_mean.transpose();
+  cout << "Transposed Mean dimensions! \n_width: " <<fg_mean._width << "\n_height: " << fg_mean._height << endl;
+  
+  /*
+  CImg<double> bg_temp_mean(3,1);
+  for(int i=0; i<bg.size(); i++)
+    for(int j=0; j<3; j++)
+      bg_temp_mean(j,0)+=img( bg[i].col, bg[i].row, 0, j);
+  for(int j=0; j<3; j++)
+      bg_temp_mean(j,0)/=bg.size();
+  */
+
+  CImg<double> fg_temp_var(3,3);
+  for(int i=0; i<fg.size(); i++) 
+    for(int j=0; j<3; j++)
+    {
+      fg_temp_var(j,i,0,0)=0;
+      for(int k=0; k<fg.size() && i==j; k++)
+        fg_temp_var(j,i,0,0)+=pow( (img( fg[k].col, fg[k].row, 0, j)-fg_temp_mean(j,0,0,0)), 2);
+      fg_temp_var(j,i,0,0)/=fg.size();
+    }
+
+  /*
+  CImg<double> bg_temp_var(3,3);
+  for(int i=0; i<bg.size(); i++)
+    for(int j=0; j<3; j++)
+    {
+      bg_temp_var(j,i)=0;
+      for(int k=0; k<bg.size() && i==j; k++)
+        bg_temp_var(j,i)+=pow( (img( bg[k].col, bg[k].row, 0, j)-bg_temp_mean(j,0)), 2);
+      bg_temp_var(j,i)/=bg.size();
+    }
+  */
+
+  bool chk_b, chk_f;
+  Point P;
+  CImg<double> result(img.width(), img.height());
+  //CImg<double> D(img.width(), img.height(), 2);
+  for(int i=0; i<img.height(); i++)
+    for(int j=0; j<img.width(); j++)
+    {  
+      //result(j, i, 0, 0) = rand() % 2;
+      P.row=i;
+      P.col=j;
+      vector<Point>::iterator pos=find( bg.begin(), bg.end(), (j,i));
+      chk_b=false;
+      chk_f=false;
+      if(pos!=bg.end())
+        chk_b=true;
+      else
+      {
+        pos=find( fg.begin(), fg.end(), (j,i));
+	if(pos!=fg.end())
+	  chk_f=true;
+      }
+
+      if(chk_f)
+        result(j,i,0,0)=1;
+      else if(chk_b)
+      	result(j,i,0,0)=0;
+      else
+      {
+	result(j,i,0,0)=0;
+	if(beta > beta)
+	  result(j,i,0,0)=1;
+      }
+    }
+  return result;
+}
+
+CImg<double> mrf_segment(const CImg<double> &img, const vector<Point> &fg, const vector<Point> &bg)
+{
+  // implement this in step 3...
+  //  this placeholder just returns a random disparity map by calling naive_segment
+  return naive_segment(img, fg, bg);
+}
+
+// Take in an input image and a binary segmentation map. Use the segmentation map to split the 
+//  input image into foreground and background portions, and then save each one as a separate image.
+//
+// You'll just need to modify this to additionally output a disparity map.
+//
+void output_segmentation(const CImg<double> &img, const CImg<double> &labels, const string &fname)
+{
+  // sanity checks. If one of these asserts fails, you've given this function invalid arguments!
+  assert(img.height() == labels.height());
+  assert(img.width() == labels.width());
+
+  CImg<double> img_fg = img, img_bg = img;
+
+  for(int i=0; i<labels.height(); i++)
+    for(int j=0; j<labels.width(); j++)
+      {
+	if(labels(j,i) == 0)
+	  img_fg(j,i,0,0) = img_fg(j,i,0,1) = img_fg(j,i,0,2) = 0;
+	else if(labels(j,i) == 1)
+	  img_bg(j,i,0,0) = img_bg(j,i,0,1) = img_bg(j,i,0,2) = 0;
+	else
+	  assert(0);
+      }
+
+  img_fg.get_normalize(0,255).save((fname + "_fg.png").c_str());
+  img_bg.get_normalize(0,255).save((fname + "_bg.png").c_str());
+}
+
+int main(int argc, char *argv[])
+{
+  if(argc != 3)
+    {
+      cerr << "usage: " << argv[0] << " image_file seeds_file" << endl;
+      return 1;
+    }
+
+  string input_filename1 = argv[1], input_filename2 = argv[2];
+
+  // read in images and gt
+  CImg<double> image_rgb(input_filename1.c_str());
+  CImg<double> seeds_rgb(input_filename2.c_str());
+
+  // figure out seed points 
+  vector<Point> fg_pixels, bg_pixels;
+  for(int i=0; i<seeds_rgb.height(); i++)
+    for(int j=0; j<seeds_rgb.width(); j++)
+      {
+	// blue --> foreground
+	if(max(seeds_rgb(j, i, 0, 0), seeds_rgb(j, i, 0, 1)) < 100 && seeds_rgb(j, i, 0, 2) > 100)
+	  fg_pixels.push_back(Point(j, i));
+
+	// red --> background
+	if(max(seeds_rgb(j, i, 0, 2), seeds_rgb(j, i, 0, 1)) < 100 && seeds_rgb(j, i, 0, 0) > 100)
+	  bg_pixels.push_back(Point(j, i));
+      }
+
+  // do naive segmentation
+  CImg<double> labels = naive_segment(image_rgb, fg_pixels, bg_pixels);
+  output_segmentation(image_rgb, labels, input_filename1 + "-naive_segment_result");
+
+  // do mrf segmentation
+  labels = naive_segment(image_rgb, fg_pixels, bg_pixels);
+  output_segmentation(image_rgb, labels, input_filename1 + "-mrf_segment_result");
+
+  return 0;
+}
